@@ -106,7 +106,7 @@ key_acls = {
 buck_acls = {"private", "public-read", "public-read-write", "authenticated-read"}
 
 
-async def _error_wrapper(func, *, args=(), kwargs=None, retries):
+async def _error_wrapper(func, *, args=(), kwargs=None, retries, backoff_factor=1.7, initial_backoff=0.1, max_backoff=15):
     if kwargs is None:
         kwargs = {}
     for i in range(retries):
@@ -115,16 +115,18 @@ async def _error_wrapper(func, *, args=(), kwargs=None, retries):
         except S3_RETRYABLE_ERRORS as e:
             err = e
             logger.debug("Retryable error: %s", e)
-            await asyncio.sleep(min(1.7**i * 0.1, 15))
+            await asyncio.sleep(min(backoff_factor**i * initial_backoff, max_backoff))
         except ClientError as e:
             logger.debug("Client error (maybe retryable): %s", e)
             err = e
-            wait_time = min(1.7**i * 0.1, 15)
+            wait_time = min(backoff_factor**i * initial_backoff, max_backoff)
             if "SlowDown" in str(e):
                 await asyncio.sleep(wait_time)
             elif "reduce your request rate" in str(e):
                 await asyncio.sleep(wait_time)
             elif "XAmzContentSHA256Mismatch" in str(e):
+                await asyncio.sleep(wait_time)
+            elif "Too Many Requests" in str(e):
                 await asyncio.sleep(wait_time)
             else:
                 break
@@ -252,6 +254,14 @@ class S3FileSystem(AsyncFileSystem):
     fixed_upload_size : bool (False)
         Use same chunk size for all parts in multipart upload (last part can be smaller).
         Cloudflare R2 storage requires fixed_upload_size=True for multipart uploads.
+    retries : int (5)
+        The maximum number of times to retry a failed request.
+    initial_backoff : float (0.1)
+        The initial wait time in seconds for retrying a failed request.
+    backoff_factor : float (1.7)
+        The factor by which the wait time increases after a failed retry of a request.
+    max_backoff : float (15)
+        The maximum time in seconds waited before retrying a failed request.
 
     The following parameters are passed on to fsspec:
 
@@ -271,7 +281,6 @@ class S3FileSystem(AsyncFileSystem):
 
     root_marker = ""
     connect_timeout = 5
-    retries = 5
     read_timeout = 15
     default_block_size = 50 * 2**20
     protocol = ("s3", "s3a")
@@ -301,6 +310,10 @@ class S3FileSystem(AsyncFileSystem):
         loop=None,
         max_concurrency=10,
         fixed_upload_size: bool = False,
+        retries: int = 5,
+        initial_backoff: float = 0.1,
+        backoff_factor: float = 1.7,
+        max_backoff: float = 15,
         **kwargs,
     ):
         if key and username:
@@ -318,6 +331,10 @@ class S3FileSystem(AsyncFileSystem):
         self.key = key
         self.secret = secret
         self.token = token
+        self.retries = retries
+        self.initial_backoff = initial_backoff
+        self.backoff_factor = backoff_factor
+        self.max_backoff = max_backoff
         self.kwargs = kwargs
         super_kwargs = {
             k: kwargs.pop(k)
@@ -369,7 +386,12 @@ class S3FileSystem(AsyncFileSystem):
         logger.debug("CALL: %s - %s - %s", method.__name__, akwarglist, kw2)
         additional_kwargs = self._get_s3_method_kwargs(method, *akwarglist, **kwargs)
         return await _error_wrapper(
-            method, kwargs=additional_kwargs, retries=self.retries
+            method,
+            kwargs=additional_kwargs,
+            retries=self.retries,
+            backoff_factor=self.backoff_factor,
+            initial_backoff=self.initial_backoff,
+            max_backoff=self.max_backoff
         )
 
     call_s3 = sync_wrapper(_call_s3)
@@ -1155,7 +1177,13 @@ class S3FileSystem(AsyncFileSystem):
             finally:
                 resp["Body"].close()
 
-        return await _error_wrapper(_call_and_read, retries=self.retries)
+        return await _error_wrapper(
+            _call_and_read,
+            retries=self.retries,
+            backoff_factor=self.backoff_factor,
+            initial_backoff=self.initial_backoff,
+            max_backoff=self.max_backoff
+        )
 
     async def _pipe_file(
         self,
@@ -2565,4 +2593,10 @@ async def _inner_fetch(fs, bucket, key, version_id, start, end, req_kw=None):
         finally:
             resp["Body"].close()
 
-    return await _error_wrapper(_call_and_read, retries=fs.retries)
+    return await _error_wrapper(
+        _call_and_read, 
+        retries=fs.retries,
+        backoff_factor=fs.backoff_factor,
+        initial_backoff=fs.initial_backoff,
+        max_backoff=fs.max_backoff
+        )
