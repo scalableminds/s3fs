@@ -48,7 +48,6 @@ logger = logging.getLogger("s3fs")
 
 
 def setup_logging(level=None):
-
     setup_logger(logger=logger, level=(level or os.environ["S3FS_LOGGING_LEVEL"]))
 
 
@@ -106,7 +105,16 @@ key_acls = {
 buck_acls = {"private", "public-read", "public-read-write", "authenticated-read"}
 
 
-async def _error_wrapper(func, *, args=(), kwargs=None, retries, backoff_factor=1.7, initial_backoff=0.1, max_backoff=15):
+async def _error_wrapper(
+    func,
+    *,
+    args=(),
+    kwargs=None,
+    retries,
+    backoff_factor=1.7,
+    initial_backoff=0.1,
+    max_backoff=15,
+):
     if kwargs is None:
         kwargs = {}
     for i in range(retries):
@@ -129,7 +137,15 @@ async def _error_wrapper(func, *, args=(), kwargs=None, retries, backoff_factor=
             elif "Too Many Requests" in str(e):
                 await asyncio.sleep(wait_time)
             else:
-                break
+                logger.warning(
+                    f"Retrying unexpected ClientError: {e}", exc_info=e, stack_info=True
+                )
+                await asyncio.sleep(wait_time)
+        except OSError as e:
+            logger.warning(
+                f"Retrying unexpected OSError: {e}", exc_info=e, stack_info=True
+            )
+            await asyncio.sleep(wait_time)
         except Exception as e:
             logger.debug("Nonretryable error: %s", e)
             err = e
@@ -167,8 +183,9 @@ def _coalesce_version_id(*args):
         version_ids.remove(None)
     if len(version_ids) > 1:
         raise ValueError(
-            "Cannot coalesce version_ids where more than one are defined,"
-            " {}".format(version_ids)
+            "Cannot coalesce version_ids where more than one are defined, {}".format(
+                version_ids
+            )
         )
     elif len(version_ids) == 0:
         return None
@@ -391,7 +408,7 @@ class S3FileSystem(AsyncFileSystem):
             retries=self.retries,
             backoff_factor=self.backoff_factor,
             initial_backoff=self.initial_backoff,
-            max_backoff=self.max_backoff
+            max_backoff=self.max_backoff,
         )
 
     call_s3 = sync_wrapper(_call_s3)
@@ -732,8 +749,7 @@ class S3FileSystem(AsyncFileSystem):
         kw.update(kwargs)
         if not self.version_aware and version_id:
             raise ValueError(
-                "version_id cannot be specified if the filesystem "
-                "is not version aware"
+                "version_id cannot be specified if the filesystem is not version aware"
             )
 
         if cache_type is None:
@@ -1182,7 +1198,7 @@ class S3FileSystem(AsyncFileSystem):
             retries=self.retries,
             backoff_factor=self.backoff_factor,
             initial_backoff=self.initial_backoff,
-            max_backoff=self.max_backoff
+            max_backoff=self.max_backoff,
         )
 
     async def _pipe_file(
@@ -1214,7 +1230,6 @@ class S3FileSystem(AsyncFileSystem):
             self.invalidate_cache(path)
             return out
         else:
-
             mpu = await self._call_s3(
                 "create_multipart_upload", Bucket=bucket, Key=key, **kwargs
             )
@@ -1294,7 +1309,6 @@ class S3FileSystem(AsyncFileSystem):
                 )
                 callback.relative_update(size)
             else:
-
                 mpu = await self._call_s3(
                     "create_multipart_upload", Bucket=bucket, Key=key, **kwargs
                 )
@@ -2594,9 +2608,9 @@ async def _inner_fetch(fs, bucket, key, version_id, start, end, req_kw=None):
             resp["Body"].close()
 
     return await _error_wrapper(
-        _call_and_read, 
+        _call_and_read,
         retries=fs.retries,
         backoff_factor=fs.backoff_factor,
         initial_backoff=fs.initial_backoff,
-        max_backoff=fs.max_backoff
-        )
+        max_backoff=fs.max_backoff,
+    )
