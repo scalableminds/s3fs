@@ -136,6 +136,9 @@ async def _error_wrapper(
                 await asyncio.sleep(wait_time)
             elif "Too Many Requests" in str(e):
                 await asyncio.sleep(wait_time)
+            elif "Not Found" in str(e):
+                # Not Found errors indicate that the requested object does not exist, and should not be retried.
+                break
             else:
                 logger.warning(
                     f"Retrying unexpected ClientError: {e}", exc_info=e, stack_info=True
