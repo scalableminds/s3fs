@@ -1510,6 +1510,18 @@ class S3FileSystem(AsyncFileSystem):
                 pass
             except ClientError as e:
                 raise translate_boto_error(e, set_cause=False)
+        else:
+            try:
+                out = await self._call_s3("head_bucket", Bucket=bucket, **self.req_kw)
+                return {
+                    "name": bucket,
+                    "type": "directory",
+                    "size": 0,
+                    "StorageClass": "DIRECTORY",
+                    "VersionId": out.get("VersionId"),
+                }
+            except ClientError as e:
+                raise translate_boto_error(e, set_cause=False)
 
         try:
             # We check to see if the path is a directory by attempting to list its
@@ -2504,6 +2516,7 @@ class S3File(AbstractBufferedFile):
 
     def commit(self):
         logger.debug("Commit %s" % self)
+        match = {"IfNoneMatch": "*"} if "x" in self.mode else {}
         if self.tell() == 0:
             if self.buffer is not None:
                 logger.debug("Empty file committed %s" % self)
@@ -2517,15 +2530,11 @@ class S3File(AbstractBufferedFile):
                 kw = dict(Key=self.key, Bucket=self.bucket, Body=data, **self.kwargs)
                 if self.acl:
                     kw["ACL"] = self.acl
-                write_result = self._call_s3("put_object", **kw)
+                write_result = self._call_s3("put_object", **kw, **match)
             else:
                 raise RuntimeError
         else:
             logger.debug("Complete multi-part upload for %s " % self)
-            if "x" in self.mode:
-                match = {"IfNoneMatch": "*"}
-            else:
-                match = {}
             part_info = {"Parts": self.parts}
             write_result = self._call_s3(
                 "complete_multipart_upload",

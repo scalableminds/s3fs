@@ -1,6 +1,18 @@
 Changelog
 =========
 
+2025.9.0
+--------
+
+- update README for distribution compliance
+
+2025.7.0
+--------
+
+- fix exclusive write for small files (#974)
+- acknowledge Anaconda support (#972)
+- fix test typo (#970)
+
 2025.5.1
 --------
 
