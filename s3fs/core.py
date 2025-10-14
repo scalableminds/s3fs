@@ -29,7 +29,7 @@ import aiobotocore
 import botocore
 import aiobotocore.session
 from aiobotocore.config import AioConfig
-from botocore.exceptions import ClientError, HTTPClientError, ParamValidationError
+from botocore.exceptions import ClientError, HTTPClientError, ParamValidationError, ConnectionClosedError
 from botocore.parsers import ResponseParserError
 
 from s3fs.errors import translate_boto_error
@@ -66,6 +66,7 @@ S3_RETRYABLE_ERRORS = (
     IncompleteRead,
     FSTimeoutError,
     ResponseParserError,
+    ConnectionClosedError
 )
 
 if ClientPayloadError is not None:
