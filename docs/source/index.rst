@@ -1,7 +1,11 @@
 S3Fs
 ====
 
-S3Fs is a Pythonic file interface to S3.  It builds on top of botocore_.
+S3Fs is a Pythonic file interface to S3.  It builds on top of botocore_. The project is hosted on `GitHub <https://github.com/fsspec/s3fs>`_ |github_stars|
+
+.. |github_stars| image:: https://img.shields.io/github/stars/fsspec/s3fs?style=social
+   :target: https://github.com/fsspec/s3fs
+   :alt: GitHub Repository
 
 The top-level class :py:class:`.S3FileSystem` holds connection information and allows
 typical file-system style operations like ``cp``, ``mv``, ``ls``, ``du``,
