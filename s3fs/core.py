@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import asyncio
 import errno
 import io
@@ -7,7 +6,6 @@ import math
 import mimetypes
 import os
 import socket
-from typing import Tuple, Optional
 import weakref
 import re
 
@@ -169,7 +167,7 @@ def _coalesce_version_id(*args):
     if len(version_ids) > 1:
         raise ValueError(
             "Cannot coalesce version_ids where more than one are defined,"
-            " {}".format(version_ids)
+            f" {version_ids}"
         )
     elif len(version_ids) == 0:
         return None
@@ -455,7 +453,7 @@ class S3FileSystem(AsyncFileSystem):
             s3_key = s3_components[1]
         return bucket, s3_key
 
-    def split_path(self, path) -> Tuple[str, str, Optional[str]]:
+    def split_path(self, path) -> tuple[str, str, str | None]:
         """
         Normalise S3 path string into bucket and key.
 
@@ -1070,7 +1068,7 @@ class S3FileSystem(AsyncFileSystem):
                     files = await self._lsdir(
                         self._parent(path), refresh=refresh, versions=versions
                     )
-                except IOError:
+                except OSError:
                     pass
                 files = [
                     o
@@ -2168,7 +2166,7 @@ class S3FileSystem(AsyncFileSystem):
                 path = self._parent(path)
 
     async def _walk(self, path, maxdepth=None, **kwargs):
-        if path in ["", "*"] + ["{}://".format(p) for p in self.protocol]:
+        if path in ["", "*"] + [f"{p}://" for p in self.protocol]:
             raise ValueError("Cannot crawl all of S3")
         async for _ in super()._walk(path, maxdepth=maxdepth, **kwargs):
             yield _

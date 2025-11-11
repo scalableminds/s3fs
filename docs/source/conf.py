@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 #
 # S3Fs documentation build configuration file, created by
 # sphinx-quickstart on Mon Mar 21 15:20:01 2016.

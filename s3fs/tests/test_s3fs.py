@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import asyncio
 import errno
 import datetime
@@ -128,9 +127,7 @@ def s3(s3_base):
                     "Effect": "Deny",
                     "Principal": "*",
                     "Action": "s3:PutObject",
-                    "Resource": "arn:aws:s3:::{bucket_name}/*".format(
-                        bucket_name=secure_bucket_name
-                    ),
+                    "Resource": f"arn:aws:s3:::{secure_bucket_name}/*",
                     "Condition": {
                         "StringNotEquals": {
                             "s3:x-amz-server-side-encryption": "aws:kms"
@@ -1672,7 +1669,7 @@ def test_fsspec_versions_multiple(s3):
             fo.write(contents)
         version_lookup[fo.version_id] = contents
     urls = [
-        "s3://{}?versionId={}".format(versioned_file, version)
+        f"s3://{versioned_file}?versionId={version}"
         for version in version_lookup.keys()
     ]
     fs, token, paths = fsspec.core.get_fs_token_paths(
@@ -1702,7 +1699,7 @@ def test_versioned_file_fullpath(s3):
     with s3.open(versioned_file, "wb") as fo:
         fo.write(b"2")
 
-    file_with_version = "{}?versionId={}".format(versioned_file, version_id)
+    file_with_version = f"{versioned_file}?versionId={version_id}"
 
     with s3.open(file_with_version, "rb") as fo:
         assert fo.version_id == version_id
