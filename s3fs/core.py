@@ -1,12 +1,11 @@
-# -*- coding: utf-8 -*-
 import asyncio
 import errno
 import io
 import logging
+import math
 import mimetypes
 import os
 import socket
-from typing import Tuple, Optional
 import weakref
 import re
 
@@ -68,6 +67,8 @@ S3_RETRYABLE_ERRORS = (
     ResponseParserError,
     ConnectionClosedError
 )
+
+MAX_UPLOAD_PARTS = 10_000  # maximum number of parts for S3 multipart upload
 
 if ClientPayloadError is not None:
     S3_RETRYABLE_ERRORS += (ClientPayloadError,)
@@ -187,14 +188,25 @@ def _coalesce_version_id(*args):
         version_ids.remove(None)
     if len(version_ids) > 1:
         raise ValueError(
-            "Cannot coalesce version_ids where more than one are defined, {}".format(
-                version_ids
-            )
+            "Cannot coalesce version_ids where more than one are defined,"
+            f" {version_ids}"
         )
     elif len(version_ids) == 0:
         return None
     else:
         return version_ids.pop()
+
+
+def calculate_chunksize(filesize, chunksize=None, max_parts=MAX_UPLOAD_PARTS) -> int:
+    if chunksize is None:
+        chunksize = 50 * 2**20  # default chunksize set to 50 MiB
+        required_chunks = math.ceil(filesize / chunksize)
+        # increase chunksize to fit within the max_parts limit
+        if required_chunks > max_parts:
+            # S3 supports uploading objects up to 5 TiB in size,
+            # so each chunk can be up to ~524 MiB.
+            chunksize = math.ceil(filesize / max_parts)
+    return chunksize
 
 
 class S3FileSystem(AsyncFileSystem):
@@ -483,7 +495,7 @@ class S3FileSystem(AsyncFileSystem):
             s3_key = s3_components[1]
         return bucket, s3_key
 
-    def split_path(self, path) -> Tuple[str, str, Optional[str]]:
+    def split_path(self, path) -> tuple[str, str, str | None]:
         """
         Normalise S3 path string into bucket and key.
 
@@ -806,6 +818,7 @@ class S3FileSystem(AsyncFileSystem):
                     else:
                         files.append(c)
                 files += dirs
+                files.sort(key=lambda f: f["name"])
             except ClientError as e:
                 raise translate_boto_error(e)
 
@@ -929,38 +942,49 @@ class S3FileSystem(AsyncFileSystem):
         sdirs = set()
         thisdircache = {}
         for o in out:
-            par = self._parent(o["name"])
-            if par not in sdirs:
-                sdirs.add(par)
-                d = False
-                if len(path) <= len(par):
-                    d = {
-                        "Key": self.split_path(par)[1],
-                        "Size": 0,
-                        "name": par,
-                        "StorageClass": "DIRECTORY",
-                        "type": "directory",
-                        "size": 0,
-                    }
-                    dirs.append(d)
-                thisdircache[par] = []
-                ppar = self._parent(par)
-                if ppar in thisdircache:
-                    if d and d not in thisdircache[ppar]:
-                        thisdircache[ppar].append(d)
-            if par in sdirs:
-                thisdircache[par].append(o)
+            # not self._parent, because that strips "/" from placeholders
+            par = o["name"].rsplit("/", maxsplit=1)[0]
+            o["Key"] = o["name"]
+            name = o["name"]
+            while "/" in par:
+                if par not in sdirs:
+                    sdirs.add(par)
+                    d = False
+                    if len(path) <= len(par):
+                        d = {
+                            "Key": par,
+                            "Size": 0,
+                            "name": par,
+                            "StorageClass": "DIRECTORY",
+                            "type": "directory",
+                            "size": 0,
+                        }
+                        dirs.append(d)
+                    thisdircache[par] = []
+                    ppar = self._parent(par)
+                    if ppar in thisdircache:
+                        if d and d not in thisdircache[ppar]:
+                            thisdircache[ppar].append(d)
+                if par in sdirs and not name.endswith("/"):
+                    # exclude placeholdees, they do not belong in the directory listing
+                    thisdircache[par].append(o)
+                par, name, o = par.rsplit("/", maxsplit=1)[0], par, d
+                if par in thisdircache or par in self.dircache:
+                    break
 
         # Explicitly add directories to their parents in the dircache
         for d in dirs:
             par = self._parent(d["name"])
-            if par in thisdircache:
+            # extra condition here (in any()) to deal with directory-marking files
+            if par in thisdircache and not any(
+                _["name"] == d["name"] for _ in thisdircache[par]
+            ):
                 thisdircache[par].append(d)
 
         if not prefix:
             for k, v in thisdircache.items():
                 if k not in self.dircache and len(k) >= len(path):
-                    self.dircache[k] = v
+                    self.dircache[k] = sorted(v, key=lambda x: x["name"])
         if withdirs:
             out = sorted(out + dirs, key=lambda x: x["name"])
         if detail:
@@ -1085,7 +1109,7 @@ class S3FileSystem(AsyncFileSystem):
                     files = await self._lsdir(
                         self._parent(path), refresh=refresh, versions=versions
                     )
-                except IOError:
+                except OSError:
                     pass
                 files = [
                     o
@@ -1277,7 +1301,7 @@ class S3FileSystem(AsyncFileSystem):
         lpath,
         rpath,
         callback=_DEFAULT_CALLBACK,
-        chunksize=50 * 2**20,
+        chunksize=None,
         max_concurrency=None,
         mode="overwrite",
         **kwargs,
@@ -1305,6 +1329,7 @@ class S3FileSystem(AsyncFileSystem):
             if content_type is not None:
                 kwargs["ContentType"] = content_type
 
+        chunksize = calculate_chunksize(size, chunksize=chunksize)
         with open(lpath, "rb") as f0:
             if size < min(5 * 2**30, 2 * chunksize):
                 chunk = f0.read()
@@ -1322,8 +1347,8 @@ class S3FileSystem(AsyncFileSystem):
                         key,
                         mpu,
                         f0,
+                        chunksize,
                         callback=callback,
-                        chunksize=chunksize,
                         max_concurrency=max_concurrency,
                     )
                     parts = [
@@ -1351,8 +1376,8 @@ class S3FileSystem(AsyncFileSystem):
         key,
         mpu,
         f0,
+        chunksize,
         callback=_DEFAULT_CALLBACK,
-        chunksize=50 * 2**20,
         max_concurrency=None,
     ):
         max_concurrency = max_concurrency or self.max_concurrency
@@ -2186,7 +2211,7 @@ class S3FileSystem(AsyncFileSystem):
                 path = self._parent(path)
 
     async def _walk(self, path, maxdepth=None, **kwargs):
-        if path in ["", "*"] + ["{}://".format(p) for p in self.protocol]:
+        if path in ["", "*"] + [f"{p}://" for p in self.protocol]:
             raise ValueError("Cannot crawl all of S3")
         async for _ in super()._walk(path, maxdepth=maxdepth, **kwargs):
             yield _

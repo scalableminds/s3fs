@@ -1,10 +1,24 @@
 Changelog
 =========
 
+2025.12.0
+---------
+
+- remove optional dependencies (#995)
+- add support for py3.14 and remove 3.9 (#993)
+- add link docs->repo (#992)
+
+2025.10.0
+---------
+
+- get bucket info on demand (#987)
+- add CoC (#986)
+- add goatcounter tracker (#985)
+
 2025.9.0
 --------
 
-- update README for distribution compliance
+- update README for distribution compliance (#977)
 
 2025.7.0
 --------
