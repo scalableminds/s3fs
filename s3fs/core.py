@@ -73,6 +73,21 @@ MAX_UPLOAD_PARTS = 10_000  # maximum number of parts for S3 multipart upload
 if ClientPayloadError is not None:
     S3_RETRYABLE_ERRORS += (ClientPayloadError,)
 
+def add_retryable_error(exc):
+    """Add an exception type to the list of retryable S3 errors."""
+    global S3_RETRYABLE_ERRORS
+    S3_RETRYABLE_ERRORS += (exc,)
+
+_CUSTOM_ERROR_HANDLER = lambda e: False
+def set_custom_error_handler(func):
+    """Set a custom error handler function for S3 retryable errors.
+
+    The function should take an exception instance as its only argument,
+    and return True if the operation should be retried, or False otherwise.
+    """
+    global _CUSTOM_ERROR_HANDLER
+    _CUSTOM_ERROR_HANDLER = func
+
 _VALID_FILE_MODES = {"r", "w", "a", "rb", "wb", "ab"}
 
 _PRESERVE_KWARGS = [
@@ -106,33 +121,48 @@ key_acls = {
 }
 buck_acls = {"private", "public-read", "public-read-write", "authenticated-read"}
 
-
 async def _error_wrapper(func, *, args=(), kwargs=None, retries):
     if kwargs is None:
         kwargs = {}
     for i in range(retries):
+        wait_time = min(1.7**i * 0.1, 15)
+        
         try:
             return await func(*args, **kwargs)
         except S3_RETRYABLE_ERRORS as e:
             err = e
             logger.debug("Retryable error: %s", e)
-            await asyncio.sleep(min(1.7**i * 0.1, 15))
+            await asyncio.sleep(wait_time)
         except ClientError as e:
             logger.debug("Client error (maybe retryable): %s", e)
             err = e
-            wait_time = min(1.7**i * 0.1, 15)
-            if "SlowDown" in str(e):
-                await asyncio.sleep(wait_time)
-            elif "reduce your request rate" in str(e):
-                await asyncio.sleep(wait_time)
-            elif "XAmzContentSHA256Mismatch" in str(e):
+
+            matched = False
+            for pattern in [
+                "SlowDown",
+                "reduce your request rate",
+                "XAmzContentSHA256Mismatch",
+            ]:
+                if pattern in str(e):
+                    matched = True
+                    break
+            
+            if matched:
                 await asyncio.sleep(wait_time)
             else:
-                break
+                should_retry = _CUSTOM_ERROR_HANDLER(e)
+                if should_retry:
+                    await asyncio.sleep(wait_time)
+                else:
+                    break
         except Exception as e:
-            logger.debug("Nonretryable error: %s", e)
-            err = e
-            break
+            should_retry = _CUSTOM_ERROR_HANDLER(e)
+            if should_retry:
+                await asyncio.sleep(wait_time)
+            else:
+                logger.debug("Nonretryable error: %s", e)
+                err = e
+                break
 
     if "'coroutine'" in str(err):
         # aiobotocore internal error - fetch original botocore error
