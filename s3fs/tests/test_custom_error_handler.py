@@ -2,7 +2,6 @@
 
 import asyncio
 import pytest
-from unittest.mock import patch
 from botocore.exceptions import ClientError
 
 import s3fs.core
