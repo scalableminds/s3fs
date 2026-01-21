@@ -74,19 +74,49 @@ if ClientPayloadError is not None:
     S3_RETRYABLE_ERRORS += (ClientPayloadError,)
 
 def add_retryable_error(exc):
-    """Add an exception type to the list of retryable S3 errors."""
+    """
+    Add an exception type to the list of retryable S3 errors.
+
+    Parameters
+    ----------
+    exc : Exception
+        The exception type to add to the retryable errors.
+
+    Examples
+    ----------
+    >>> class MyCustomError(Exception):  # doctest: +SKIP
+    ...     pass  # doctest: +SKIP
+    >>> add_retryable_error(MyCustomError)  # doctest: +SKIP    
+    """
     global S3_RETRYABLE_ERRORS
     S3_RETRYABLE_ERRORS += (exc,)
 
-_CUSTOM_ERROR_HANDLER = lambda e: False
+CUSTOM_ERROR_HANDLER = lambda _: False
 def set_custom_error_handler(func):
     """Set a custom error handler function for S3 retryable errors.
 
     The function should take an exception instance as its only argument,
     and return True if the operation should be retried, or False otherwise.
+    This can also be used for custom behavior on `ClientError` exceptions, 
+    such as retrying other patterns.
+
+    Parameters
+    ----------
+    func : callable[[Exception], bool]
+        The custom error handler function.
+
+    Examples
+    ----------
+    >>> def my_handler(e):  # doctest: +SKIP
+    ...     return isinstance(e, MyCustomError) and "some condition" in str(e)  # doctest: +SKIP
+    >>> set_custom_error_handler(my_handler)  # doctest: +SKIP
+
+    >>> def another_handler(e):  # doctest: +SKIP
+    ...     return isinstance(e, ClientError) and "Throttling" in str(e)  # doctest: +SKIP
+    >>> set_custom_error_handler(another_handler)  # doctest: +SKIP
     """
-    global _CUSTOM_ERROR_HANDLER
-    _CUSTOM_ERROR_HANDLER = func
+    global CUSTOM_ERROR_HANDLER
+    CUSTOM_ERROR_HANDLER = func
 
 _VALID_FILE_MODES = {"r", "w", "a", "rb", "wb", "ab"}
 
@@ -124,6 +154,7 @@ buck_acls = {"private", "public-read", "public-read-write", "authenticated-read"
 async def _error_wrapper(func, *, args=(), kwargs=None, retries):
     if kwargs is None:
         kwargs = {}
+    err = None
     for i in range(retries):
         wait_time = min(1.7**i * 0.1, 15)
         
@@ -150,18 +181,18 @@ async def _error_wrapper(func, *, args=(), kwargs=None, retries):
             if matched:
                 await asyncio.sleep(wait_time)
             else:
-                should_retry = _CUSTOM_ERROR_HANDLER(e)
+                should_retry = CUSTOM_ERROR_HANDLER(e)
                 if should_retry:
                     await asyncio.sleep(wait_time)
                 else:
                     break
         except Exception as e:
-            should_retry = _CUSTOM_ERROR_HANDLER(e)
+            err = e
+            should_retry = CUSTOM_ERROR_HANDLER(e)
             if should_retry:
                 await asyncio.sleep(wait_time)
             else:
                 logger.debug("Nonretryable error: %s", e)
-                err = e
                 break
 
     if "'coroutine'" in str(err):
