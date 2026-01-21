@@ -112,7 +112,7 @@ def set_custom_error_handler(func):
     >>> set_custom_error_handler(my_handler)  # doctest: +SKIP
 
     >>> def another_handler(e):  # doctest: +SKIP
-    ...     return isinstance(e, ClientError) and "Throttling" in str(e)  # doctest: +SKIP
+    ...     return isinstance(e, ClientError) and "Throttling" in str(e)"  # doctest: +SKIP
     >>> set_custom_error_handler(another_handler)  # doctest: +SKIP
     """
     global CUSTOM_ERROR_HANDLER
