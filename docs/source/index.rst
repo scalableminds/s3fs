@@ -157,8 +157,8 @@ Python's standard `logging framework`_.
 Errors
 ------
 
-The ``s3fs`` library includes a built-in mechanism to automatically retry 
-operations when specific transient errors occur. You can customize this behavior 
+The ``s3fs`` library includes a built-in mechanism to automatically retry
+operations when specific transient errors occur. You can customize this behavior
 by adding specific exception types or defining complex logic via custom handlers.
 
 Default Retryable Errors
@@ -176,7 +176,7 @@ By default, ``s3fs`` will retry the following exception types:
 Registering Custom Error Types
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-To include additional exception types in the default retry logic, use the 
+To include additional exception types in the default retry logic, use the
 ``add_retryable_error`` function. This is useful for simple type-based retries.
 
 .. code-block:: python
@@ -188,10 +188,10 @@ To include additional exception types in the default retry logic, use the
 Implementing Custom Error Handlers
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-For more complex scenarios, such as retrying based on an error message rather than 
+For more complex scenarios, such as retrying based on an error message rather than
 just the type, you can register a custom error handler using ``set_custom_error_handler``.
 
-The handler should be a callable that accepts an exception instance and returns ``True`` 
+The handler should be a callable that accepts an exception instance and returns ``True``
 if the error should be retried, or ``False`` otherwise.
 
 .. code-block:: python
@@ -203,9 +203,9 @@ if the error should be retried, or ``False`` otherwise.
 Handling AWS ClientErrors
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``s3fs`` provides specialized handling for ``botocore.exceptions.ClientError``. 
-While ``s3fs`` checks these against internal patterns (like throttling), 
-you can extend this behavior using a custom handler. Note that the internal 
+``s3fs`` provides specialized handling for ``botocore.exceptions.ClientError``.
+While ``s3fs`` checks these against internal patterns (like throttling),
+you can extend this behavior using a custom handler. Note that the internal
 patterns will still be checked and handled before the custom handler.
 
 .. code-block:: python
